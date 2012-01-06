@@ -359,9 +359,11 @@ ngx_open_pipe(ngx_cycle_t *cycle, ngx_open_pipe_t *op)
     u_char          **argv;
     ngx_pid_t         pid;
     sigset_t          set;
-    ngx_core_conf_t  *ccf;
+    ngx_core_conf_t  *ccf = NULL;
 
-    ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
+    if (NULL != cycle) {
+        ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
+    }
 
     if (pipe(op->pfd) < 0) {
         return NGX_ERROR;
@@ -404,7 +406,7 @@ ngx_open_pipe(ngx_cycle_t *cycle, ngx_open_pipe_t *op)
             }
         }
 
-        if (geteuid() == 0) {
+        if (NULL != ccf && geteuid() == 0) {
             if (setgid(ccf->group) == -1) {
                 ngx_log_error(NGX_LOG_EMERG, cycle->log, ngx_errno,
                               "setgid(%d) failed", ccf->group);
