@@ -10,6 +10,9 @@
 #include <ngx_channel.h>
 
 
+#define NGX_PIPE_STILL_NEEDED     2
+
+
 static void ngx_start_worker_processes(ngx_cycle_t *cycle, ngx_int_t n,
     ngx_int_t type);
 static void ngx_start_cache_manager_processes(ngx_cycle_t *cycle,
@@ -86,7 +89,7 @@ ngx_master_process_cycle(ngx_cycle_t *cycle)
     u_char            *p;
     size_t             size;
     ngx_int_t          i;
-    ngx_uint_t         n, sigio;
+    ngx_uint_t         n, sigio, close_old_pipe;
     sigset_t           set;
     struct itimerval   itv;
     ngx_uint_t         live;
@@ -138,6 +141,7 @@ ngx_master_process_cycle(ngx_cycle_t *cycle)
     ngx_start_cache_manager_processes(cycle, 0);
 
     ngx_new_binary = 0;
+    close_old_pipe = 0;
     delay = 0;
     sigio = 0;
     live = 1;
@@ -178,6 +182,10 @@ ngx_master_process_cycle(ngx_cycle_t *cycle)
             ngx_log_debug0(NGX_LOG_DEBUG_EVENT, cycle->log, 0, "reap children");
 
             live = ngx_reap_children(cycle);
+            if (!(live & NGX_PIPE_STILL_NEEDED) && close_old_pipe) {
+                ngx_close_old_pipes();
+                close_old_pipe = 0;
+            }
         }
 
         if (!live && (ngx_terminate || ngx_quit)) {
@@ -250,6 +258,7 @@ ngx_master_process_cycle(ngx_cycle_t *cycle)
                                        NGX_PROCESS_JUST_RESPAWN);
             ngx_start_cache_manager_processes(cycle, 1);
             live = 1;
+            close_old_pipe = 1;
             ngx_signal_worker_processes(cycle,
                                         ngx_signal_value(NGX_SHUTDOWN_SIGNAL));
         }
@@ -633,7 +642,7 @@ ngx_reap_children(ngx_cycle_t *cycle)
 
                 ngx_pass_open_channel(cycle, &ch);
 
-                live = 1;
+                live |= 1;
 
                 continue;
             }
@@ -668,7 +677,11 @@ ngx_reap_children(ngx_cycle_t *cycle)
             }
 
         } else if (ngx_processes[i].exiting || !ngx_processes[i].detached) {
-            live = 1;
+            live |= 1;
+
+            if (ngx_processes[i].exiting) {
+                live |= NGX_PIPE_STILL_NEEDED;
+            }
         }
     }
 
@@ -709,6 +722,11 @@ ngx_master_process_exit(ngx_cycle_t *cycle)
     ngx_cycle = &ngx_exit_cycle;
 
     ngx_destroy_pool(cycle->pool);
+
+    /* Terminate all pipe processes */
+
+    ngx_increase_pipe_generation();
+    ngx_close_old_pipes();
 
     exit(0);
 }
@@ -1151,6 +1169,10 @@ ngx_channel_handler(ngx_event_t *ev)
             }
 
             ngx_processes[ch.slot].channel[0] = -1;
+            break;
+
+        case NGX_CMD_PIPE_BROKEN:
+            ngx_pipe_broken_action(ev->log, ch.pid, 0);
             break;
         }
     }

@@ -45,8 +45,8 @@ typedef u_char *(*ngx_log_handler_pt) (ngx_log_t *log, u_char *buf, size_t len);
 
 
 struct ngx_log_s {
-    ngx_uint_t           log_level;
     ngx_open_file_t     *file;
+    ngx_uint_t           log_level;
 
     ngx_atomic_uint_t    connection;
 
@@ -217,6 +217,7 @@ ngx_write_stderr(char *text)
 {
     (void) ngx_write_fd(ngx_stderr, text, strlen(text));
 }
+ngx_int_t ngx_log_target(ngx_cycle_t *cycle, ngx_str_t *value, ngx_log_t *log);
 
 
 extern ngx_module_t  ngx_errlog_module;

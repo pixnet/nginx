@@ -209,12 +209,9 @@ ngx_log_stderr(ngx_err_t err, const char *fmt, ...)
     u_char    errstr[NGX_MAX_ERROR_STR];
 
     last = errstr + NGX_MAX_ERROR_STR;
-    p = errstr + 7;
-
-    ngx_memcpy(errstr, "nginx: ", 7);
 
     va_start(args, fmt);
-    p = ngx_vslprintf(p, last, fmt, args);
+    p = ngx_vslprintf(errstr, last, fmt, args);
     va_end(args);
 
     if (err) {
@@ -351,10 +348,29 @@ ngx_log_t *
 ngx_log_create(ngx_cycle_t *cycle, ngx_str_t *name)
 {
     ngx_log_t  *log;
+    ngx_int_t   rc;
+    ngx_str_t   full;
 
     log = ngx_pcalloc(cycle->pool, sizeof(ngx_log_t));
     if (log == NULL) {
         return NULL;
+    }
+
+    rc = ngx_log_target(cycle, name, log);
+
+    if (rc == NGX_ERROR) {
+        return NULL;
+    } else if (rc == NGX_OK) {
+        if (log->file != NULL) {
+            full = ngx_log_error_backup;
+            if (ngx_conf_full_name(cycle, &full, 0) != NGX_OK) {
+                return NULL;
+            }
+
+            log->file->name = full;
+        }
+
+        return log;
     }
 
     log->file = ngx_conf_open_file(cycle, name);
@@ -427,6 +443,7 @@ ngx_log_set_levels(ngx_conf_t *cf, ngx_log_t *log)
 static char *
 ngx_error_log(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
+    ngx_int_t   rc;
     ngx_str_t  *value, name;
 
     if (cf->cycle->new_log.file) {
@@ -435,16 +452,33 @@ ngx_error_log(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
     value = cf->args->elts;
 
-    if (ngx_strcmp(value[1].data, "stderr") == 0) {
-        ngx_str_null(&name);
+    rc = ngx_log_target(cf->cycle, &value[1], &cf->cycle->new_log);
 
+    if (rc == NGX_ERROR) {
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                           "invalid logger \"%V\"", &value[1]);
+        return NGX_CONF_ERROR;
+
+    } else if (rc == NGX_OK) {
+        if (cf->cycle->new_log.file != NULL) {
+            name = ngx_log_error_backup;
+            if (ngx_conf_full_name(cf->cycle, &name, 0) != NGX_OK) {
+                return "fail to set backup";
+            }
+
+            cf->cycle->new_log.file->name = name;
+        }
     } else {
-        name = value[1];
-    }
+        if (ngx_strcmp(value[1].data, "stderr") == 0) {
+            ngx_str_null(&name);
+        } else {
+            name = value[1];
+        }
 
-    cf->cycle->new_log.file = ngx_conf_open_file(cf->cycle, &name);
-    if (cf->cycle->new_log.file == NULL) {
-        return NULL;
+        cf->cycle->new_log.file = ngx_conf_open_file(cf->cycle, &name);
+        if (cf->cycle->new_log.file == NULL) {
+            return NULL;
+        }
     }
 
     if (cf->args->nelts == 2) {
@@ -455,4 +489,47 @@ ngx_error_log(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     cf->cycle->new_log.log_level = 0;
 
     return ngx_log_set_levels(cf, &cf->cycle->new_log);
+}
+
+
+ngx_int_t
+ngx_log_target(ngx_cycle_t *cycle, ngx_str_t *value, ngx_log_t *log)
+{
+    ngx_open_pipe_t *pipe_conf;
+
+    if (ngx_strncmp(value->data, "syslog:", 7) == 0) {
+        return NGX_ERROR;
+    } else if (ngx_strncmp(value->data, "file:", 5) == 0) {
+        if (value->len == 5) {
+            return NGX_ERROR;
+        }
+
+        value->len -= 5;
+        value->data += 5;
+    } else if (ngx_strncmp(value->data, "pipe:", 5) == 0) {
+
+#if !(NGX_WIN32)
+        if (value->len == 5) {
+            return NGX_ERROR;
+        }
+
+        value->len -= 5;
+        value->data += 5;
+
+        pipe_conf = ngx_conf_open_pipe(cycle, value, "w");
+        if (pipe_conf == NULL) {
+            return NGX_ERROR;
+        }
+
+        log->file = pipe_conf->open_fd;
+
+        return NGX_OK;
+
+#else
+        return NGX_ERROR;
+#endif
+
+    }
+
+    return NGX_DECLINED;
 }
