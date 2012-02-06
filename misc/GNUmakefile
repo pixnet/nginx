@@ -6,9 +6,9 @@ TEMP =		tmp
 REPO =		$(shell svn info | sed -n 's/^Repository Root: //p')
 
 OBJS =		objs.msvc8
-OPENSSL =	openssl-1.0.0d
-ZLIB =		zlib-1.2.3
-PCRE =		pcre-7.9
+OPENSSL =	openssl-1.0.0g
+ZLIB =		zlib-1.2.5
+PCRE =		pcre-8.21
 
 
 release:
@@ -111,7 +111,7 @@ zip:
 	cp -p $(OBJS)/lib/$(PCRE)/LICENCE				\
 		$(TEMP)/$(NGINX)/docs/PCRE.LICENCE
 
-	perl -ne 'print if /^ \(C\) 1995-2004/ .. /^  jloup\@gzip.org/'	\
+	perl -ne 'print if /^ \(C\) 1995-20/ .. /^  jloup\@gzip.org/'	\
 		$(OBJS)/lib/$(ZLIB)/README				\
 		> $(TEMP)/$(NGINX)/docs/zlib.LICENSE
 
