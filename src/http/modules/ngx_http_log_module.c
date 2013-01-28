@@ -347,7 +347,7 @@ ngx_http_log_write(ngx_http_request_t *r, ngx_http_log_t *log, u_char *buf,
         return;
     }
 
-    if (now - log->error_log_time > 59) {
+    if (now - log->error_log_time > 59 && name) {
         ngx_log_error(NGX_LOG_ALERT, r->connection->log, 0,
                       ngx_write_fd_n " to \"%s\" was incomplete: %z of %uz",
                       name, n, len);
