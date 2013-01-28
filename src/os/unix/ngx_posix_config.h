@@ -12,6 +12,7 @@
 #if (NGX_HPUX)
 #define _XOPEN_SOURCE
 #define _XOPEN_SOURCE_EXTENDED  1
+#define _HPUX_ALT_XOPEN_SOCKET_API
 #endif
 
 
@@ -45,6 +46,7 @@
 #include <grp.h>
 #include <dirent.h>
 #include <glob.h>
+#include <time.h>
 #if (NGX_HAVE_SYS_PARAM_H)
 #include <sys/param.h>          /* statfs() */
 #endif

@@ -21,6 +21,8 @@ static char *ngx_set_env(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 static char *ngx_set_priority(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 static char *ngx_set_cpu_affinity(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
+static char *ngx_set_worker_processes(ngx_conf_t *cf, ngx_command_t *cmd,
+    void *conf);
 
 
 static ngx_conf_enum_t  ngx_debug_points[] = {
@@ -69,9 +71,9 @@ static ngx_command_t  ngx_core_commands[] = {
 
     { ngx_string("worker_processes"),
       NGX_MAIN_CONF|NGX_DIRECT_CONF|NGX_CONF_TAKE1,
-      ngx_conf_set_num_slot,
+      ngx_set_worker_processes,
       0,
-      offsetof(ngx_core_conf_t, worker_processes),
+      0,
       NULL },
 
     { ngx_string("debug_points"),
@@ -654,7 +656,7 @@ ngx_exec_new_binary(ngx_cycle_t *cycle, char *const *argv)
         if (ngx_rename_file(ccf->oldpid.data, ccf->pid.data) != NGX_OK) {
             ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
                           ngx_rename_file_n " %s back to %s failed after "
-                          "the try to execute the new binary process \"%s\"",
+                          "an attempt to execute new binary process \"%s\"",
                           ccf->oldpid.data, ccf->pid.data, argv[0]);
         }
     }
@@ -841,7 +843,7 @@ ngx_process_options(ngx_cycle_t *cycle)
         len = ngx_strlen(ngx_prefix);
         p = ngx_prefix;
 
-        if (!ngx_path_separator(*p)) {
+        if (len && !ngx_path_separator(p[len - 1])) {
             p = ngx_pnalloc(cycle->pool, len + 1);
             if (p == NULL) {
                 return NGX_ERROR;
@@ -988,15 +990,15 @@ ngx_core_module_init_conf(ngx_cycle_t *cycle, void *conf)
     ngx_conf_init_value(ccf->worker_processes, 1);
     ngx_conf_init_value(ccf->debug_points, 0);
 
-#if (NGX_HAVE_SCHED_SETAFFINITY)
+#if (NGX_HAVE_CPU_AFFINITY)
 
     if (ccf->cpu_affinity_n
         && ccf->cpu_affinity_n != 1
         && ccf->cpu_affinity_n != (ngx_uint_t) ccf->worker_processes)
     {
         ngx_log_error(NGX_LOG_WARN, cycle->log, 0,
-                      "number of the \"worker_processes\" is not equal to "
-                      "the number of the \"worker_cpu_affinity\" mask, "
+                      "the number of \"worker_processes\" is not equal to "
+                      "the number of \"worker_cpu_affinity\" masks, "
                       "using last mask for remaining worker processes");
     }
 
@@ -1247,11 +1249,11 @@ ngx_set_priority(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 static char *
 ngx_set_cpu_affinity(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
-#if (NGX_HAVE_SCHED_SETAFFINITY)
+#if (NGX_HAVE_CPU_AFFINITY)
     ngx_core_conf_t  *ccf = conf;
 
     u_char            ch;
-    u_long           *mask;
+    uint64_t         *mask;
     ngx_str_t        *value;
     ngx_uint_t        i, n;
 
@@ -1259,7 +1261,7 @@ ngx_set_cpu_affinity(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         return "is duplicate";
     }
 
-    mask = ngx_palloc(cf->pool, (cf->args->nelts - 1) * sizeof(long));
+    mask = ngx_palloc(cf->pool, (cf->args->nelts - 1) * sizeof(uint64_t));
     if (mask == NULL) {
         return NGX_CONF_ERROR;
     }
@@ -1271,9 +1273,9 @@ ngx_set_cpu_affinity(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
     for (n = 1; n < cf->args->nelts; n++) {
 
-        if (value[n].len > 32) {
+        if (value[n].len > 64) {
             ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                         "\"worker_cpu_affinity\" supports up to 32 CPU only");
+                         "\"worker_cpu_affinity\" supports up to 64 CPUs only");
             return NGX_CONF_ERROR;
         }
 
@@ -1316,7 +1318,7 @@ ngx_set_cpu_affinity(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 }
 
 
-u_long
+uint64_t
 ngx_get_cpu_affinity(ngx_uint_t n)
 {
     ngx_core_conf_t  *ccf;
@@ -1333,4 +1335,33 @@ ngx_get_cpu_affinity(ngx_uint_t n)
     }
 
     return ccf->cpu_affinity[ccf->cpu_affinity_n - 1];
+}
+
+
+static char *
+ngx_set_worker_processes(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+{
+    ngx_str_t        *value;
+    ngx_core_conf_t  *ccf;
+
+    ccf = (ngx_core_conf_t *) conf;
+
+    if (ccf->worker_processes != NGX_CONF_UNSET) {
+        return "is duplicate";
+    }
+
+    value = (ngx_str_t *) cf->args->elts;
+
+    if (ngx_strcmp(value[1].data, "auto") == 0) {
+        ccf->worker_processes = ngx_ncpu;
+        return NGX_CONF_OK;
+    }
+
+    ccf->worker_processes = ngx_atoi(value[1].data, value[1].len);
+
+    if (ccf->worker_processes == NGX_ERROR) {
+        return "invalid value";
+    }
+
+    return NGX_CONF_OK;
 }

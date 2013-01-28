@@ -6,9 +6,9 @@ TEMP =		tmp
 REPO =		$(shell svn info | sed -n 's/^Repository Root: //p')
 
 OBJS =		objs.msvc8
-OPENSSL =	openssl-1.0.0g
-ZLIB =		zlib-1.2.5
-PCRE =		pcre-8.21
+OPENSSL =	openssl-1.0.1c
+ZLIB =		zlib-1.2.7
+PCRE =		pcre-8.31
 
 
 release:
@@ -46,7 +46,8 @@ RELEASE:
 	svn ci -F $(TEMP)/message
 
 	echo "release-$(VER) tag" > $(TEMP)/message
-	svn copy $(REPO)/trunk $(REPO)/tags/release-$(VER)		\
+	svn copy $(REPO)/branches/stable-1.2				\
+		$(REPO)/tags/release-$(VER)				\
 		-F $(TEMP)/message
 
 	svn up
@@ -82,6 +83,42 @@ snapshot:
 
 	tar -c -z -f $(NGINX).tar.gz --directory $(TEMP) $(NGINX)
 
+win32:
+	./auto/configure						\
+		--with-cc=cl						\
+		--builddir=$(OBJS)					\
+		--with-debug						\
+		--prefix= 						\
+		--conf-path=conf/nginx.conf				\
+		--pid-path=logs/nginx.pid				\
+		--http-log-path=logs/access.log				\
+		--error-log-path=logs/error.log				\
+		--sbin-path=nginx.exe					\
+		--http-client-body-temp-path=temp/client_body_temp	\
+		--http-proxy-temp-path=temp/proxy_temp			\
+		--http-fastcgi-temp-path=temp/fastcgi_temp		\
+		--http-scgi-temp-path=temp/scgi_temp			\
+		--http-uwsgi-temp-path=temp/uwsgi_temp			\
+		--with-cc-opt=-DFD_SETSIZE=1024				\
+		--with-pcre=$(OBJS)/lib/$(PCRE)				\
+		--with-zlib=$(OBJS)/lib/$(ZLIB)				\
+		--with-select_module					\
+		--with-http_realip_module				\
+		--with-http_addition_module				\
+		--with-http_sub_module					\
+		--with-http_dav_module					\
+		--with-http_stub_status_module				\
+		--with-http_flv_module					\
+		--with-http_mp4_module					\
+		--with-http_gzip_static_module				\
+		--with-http_random_index_module				\
+		--with-http_secure_link_module				\
+		--with-mail						\
+		--with-openssl=$(OBJS)/lib/$(OPENSSL)			\
+		--with-openssl-opt=enable-tlsext			\
+		--with-http_ssl_module					\
+		--with-mail_ssl_module					\
+		--with-ipv6
 
 zip:
 	rm -rf $(TEMP)
@@ -92,7 +129,7 @@ zip:
 	mkdir -p $(TEMP)/$(NGINX)/temp
 
 	svn export -rHEAD conf $(TEMP)/$(NGINX)/conf/
-	perl -pi -e 's/$$/\r/' $(TEMP)/$(NGINX)/conf/*
+	sed -i '' -e "s/$$/`printf '\r'`/" $(TEMP)/$(NGINX)/conf/*
 
 	svn export -rHEAD contrib $(TEMP)/$(NGINX)/contrib/
 	svn export -rHEAD docs/html $(TEMP)/$(NGINX)/html/
@@ -111,7 +148,7 @@ zip:
 	cp -p $(OBJS)/lib/$(PCRE)/LICENCE				\
 		$(TEMP)/$(NGINX)/docs/PCRE.LICENCE
 
-	perl -ne 'print if /^ \(C\) 1995-20/ .. /^  jloup\@gzip.org/'	\
+	sed -ne '/^ (C) 1995-20/,/^  jloup@gzip\.org/p'			\
 		$(OBJS)/lib/$(ZLIB)/README				\
 		> $(TEMP)/$(NGINX)/docs/zlib.LICENSE
 

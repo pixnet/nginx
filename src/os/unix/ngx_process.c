@@ -465,8 +465,6 @@ ngx_process_get_status(void)
                 return;
             }
 
-#if (NGX_SOLARIS || NGX_FREEBSD)
-
             /*
              * Solaris always calls the signal handler for each exited process
              * despite waitpid() may be already called for this process.
@@ -481,8 +479,6 @@ ngx_process_get_status(void)
                               "waitpid() failed");
                 return;
             }
-
-#endif
 
             ngx_log_error(NGX_LOG_ALERT, ngx_cycle->log, err,
                           "waitpid() failed");
@@ -540,7 +536,7 @@ ngx_process_get_status(void)
 
 static void
 ngx_unlock_mutexes(ngx_pid_t pid)
-{ 
+{
     ngx_uint_t        i;
     ngx_shm_zone_t   *shm_zone;
     ngx_list_part_t  *part;
