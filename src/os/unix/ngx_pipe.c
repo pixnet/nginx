@@ -211,13 +211,6 @@ ngx_open_pipes(ngx_cycle_t *cycle)
             return NGX_ERROR;
         }
 
-        if (ngx_nonblocking(ngx_pipes[i].open_fd->fd) == -1) {
-            ngx_log_error(NGX_LOG_EMERG, cycle->log, ngx_errno,
-                          "nonblock \"%s\" failed",
-                          ngx_pipes[i].cmd);
-            return NGX_ERROR;
-        }
-
         ngx_pipes[i].backup = ngx_pipes[i].open_fd->name;
         ngx_pipes[i].open_fd->name.len = 0;
         ngx_pipes[i].open_fd->name.data = NULL;
