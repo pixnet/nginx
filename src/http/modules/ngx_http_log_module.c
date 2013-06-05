@@ -377,6 +377,10 @@ ngx_http_log_write(ngx_http_request_t *r, ngx_http_log_t *log, u_char *buf,
         return;
     }
 
+    if (!name) {
+        name = "pipe";
+    }
+
     now = ngx_time();
 
     if (n == -1) {
@@ -1087,14 +1091,16 @@ ngx_http_log_set_log(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
     ssize_t                     size;
     ngx_int_t                   gzip;
-    ngx_uint_t                  i, n;
+    ngx_int_t                   rc;
     ngx_msec_t                  flush;
     ngx_str_t                  *value, name, s;
+    ngx_uint_t                  i, n;
     ngx_http_log_t             *log;
     ngx_http_log_buf_t         *buffer;
     ngx_http_log_fmt_t         *fmt;
     ngx_http_log_main_conf_t   *lmcf;
     ngx_http_script_compile_t   sc;
+    ngx_uint_t                  skip_file = 0;
 
     value = cf->args->elts;
 
@@ -1125,36 +1131,55 @@ ngx_http_log_set_log(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
     ngx_memzero(log, sizeof(ngx_http_log_t));
 
-    n = ngx_http_script_variables_count(&value[1]);
+    rc = ngx_log_target(cf->cycle, &value[1], (ngx_log_t *) log);
 
-    if (n == 0) {
-        log->file = ngx_conf_open_file(cf->cycle, &value[1]);
-        if (log->file == NULL) {
-            return NGX_CONF_ERROR;
+    if (rc == NGX_ERROR) {
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                           "invalid parameter \"%V\"", &value[1]);
+        return NGX_CONF_ERROR;
+    } else if (rc == NGX_OK) {
+        skip_file = 1;
+
+        if (log->file != NULL) {
+            name = ngx_log_access_backup;
+            if (ngx_conf_full_name(cf->cycle, &name, 0) != NGX_OK) {
+                return "fail to set bakup";
+            }
+
+            log->file->name = name;
         }
-
     } else {
-        if (ngx_conf_full_name(cf->cycle, &value[1], 0) != NGX_OK) {
-            return NGX_CONF_ERROR;
-        }
+        n = ngx_http_script_variables_count(&value[1]);
 
-        log->script = ngx_pcalloc(cf->pool, sizeof(ngx_http_log_script_t));
-        if (log->script == NULL) {
-            return NGX_CONF_ERROR;
-        }
+        if (n == 0) {
+            log->file = ngx_conf_open_file(cf->cycle, &value[1]);
+            if (log->file == NULL) {
+                return NGX_CONF_ERROR;
+            }
 
-        ngx_memzero(&sc, sizeof(ngx_http_script_compile_t));
+        } else {
+            if (ngx_conf_full_name(cf->cycle, &value[1], 0) != NGX_OK) {
+                return NGX_CONF_ERROR;
+            }
 
-        sc.cf = cf;
-        sc.source = &value[1];
-        sc.lengths = &log->script->lengths;
-        sc.values = &log->script->values;
-        sc.variables = n;
-        sc.complete_lengths = 1;
-        sc.complete_values = 1;
+            log->script = ngx_pcalloc(cf->pool, sizeof(ngx_http_log_script_t));
+            if (log->script == NULL) {
+                return NGX_CONF_ERROR;
+            }
 
-        if (ngx_http_script_compile(&sc) != NGX_OK) {
-            return NGX_CONF_ERROR;
+            ngx_memzero(&sc, sizeof(ngx_http_script_compile_t));
+
+            sc.cf = cf;
+            sc.source = &value[1];
+            sc.lengths = &log->script->lengths;
+            sc.values = &log->script->values;
+            sc.variables = n;
+            sc.complete_lengths = 1;
+            sc.complete_values = 1;
+
+            if (ngx_http_script_compile(&sc) != NGX_OK) {
+                return NGX_CONF_ERROR;
+            }
         }
     }
 

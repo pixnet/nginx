@@ -383,6 +383,11 @@ main(int argc, char *const *argv)
 
 #endif
 
+    if (ngx_open_pipes(cycle) == NGX_ERROR) {
+        ngx_log_error(NGX_LOG_EMERG, cycle->log, 0, "can not open pipes");
+        return 1;
+    }
+
     if (ngx_create_pidfile(&ccf->pid, cycle->log) != NGX_OK) {
         return 1;
     }

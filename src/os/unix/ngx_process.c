@@ -11,15 +11,6 @@
 #include <ngx_channel.h>
 
 
-typedef struct {
-    int     signo;
-    char   *signame;
-    char   *name;
-    void  (*handler)(int signo);
-} ngx_signal_t;
-
-
-
 static void ngx_execute_proc(ngx_cycle_t *cycle, void *data);
 static void ngx_signal_handler(int signo);
 static void ngx_process_get_status(void);
@@ -505,6 +496,11 @@ ngx_process_get_status(void)
                 process = ngx_processes[i].name;
                 break;
             }
+        }
+
+        if (i == ngx_last_process) {
+            process = "pipe process";
+            ngx_pipe_broken_action(ngx_cycle->log, pid, 1);
         }
 
         if (WTERMSIG(status)) {
