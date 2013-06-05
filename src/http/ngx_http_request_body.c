@@ -35,13 +35,21 @@ ngx_http_read_client_request_body(ngx_http_request_t *r,
     size_t                     preread;
     ssize_t                    size;
     ngx_int_t                  rc;
-    ngx_chain_t                out;
+    ngx_buf_t                 *b;
+    ngx_chain_t                out, *cl;
     ngx_http_request_body_t   *rb;
     ngx_http_core_loc_conf_t  *clcf;
 
     r->main->count++;
 
-    if (r->request_body || r->discard_body) {
+#if (NGX_HTTP_SPDY)
+    if (r->spdy_stream) {
+        rc = ngx_http_spdy_read_request_body(r, post_handler);
+        goto done;
+    }
+#endif
+
+    if (r != r->main || r->request_body || r->discard_body) {
         post_handler(r);
         return NGX_OK;
     }
@@ -103,7 +111,20 @@ ngx_http_read_client_request_body(ngx_http_request_t *r,
         {
             /* the whole request body may be placed in r->header_in */
 
-            rb->buf = r->header_in;
+            b = ngx_calloc_buf(r->pool);
+            if (b == NULL) {
+                rc = NGX_HTTP_INTERNAL_SERVER_ERROR;
+                goto done;
+            }
+
+            b->temporary = 1;
+            b->start = r->header_in->pos;
+            b->pos = r->header_in->pos;
+            b->last = r->header_in->last;
+            b->end = r->header_in->end;
+
+            rb->buf = b;
+
             r->read_event_handler = ngx_http_read_client_request_body_handler;
             r->write_event_handler = ngx_http_request_empty_handler;
 
@@ -128,6 +149,21 @@ ngx_http_read_client_request_body(ngx_http_request_t *r,
                 rc = NGX_HTTP_INTERNAL_SERVER_ERROR;
                 goto done;
             }
+
+            cl = ngx_chain_get_free_buf(r->pool, &rb->free);
+            if (cl == NULL) {
+                return NGX_HTTP_INTERNAL_SERVER_ERROR;
+            }
+
+            b = cl->buf;
+
+            ngx_memzero(b, sizeof(ngx_buf_t));
+
+            b->in_file = 1;
+            b->file_last = rb->temp_file->file.offset;
+            b->file = &rb->temp_file->file;
+
+            rb->bufs = cl;
         }
 
         post_handler(r);
@@ -445,6 +481,13 @@ ngx_http_discard_request_body(ngx_http_request_t *r)
     ssize_t       size;
     ngx_int_t     rc;
     ngx_event_t  *rev;
+
+#if (NGX_HTTP_SPDY)
+    if (r->spdy_stream && r == r->main) {
+        r->spdy_stream->skip_data = NGX_SPDY_DATA_DISCARD;
+        return NGX_OK;
+    }
+#endif
 
     if (r != r->main || r->discard_body || r->request_body) {
         return NGX_OK;
@@ -810,7 +853,7 @@ ngx_http_request_body_length_filter(ngx_http_request_t *r, ngx_chain_t *in)
 
         b->temporary = 1;
         b->tag = (ngx_buf_tag_t) &ngx_http_read_client_request_body;
-        b->start = cl->buf->start;
+        b->start = cl->buf->pos;
         b->pos = cl->buf->pos;
         b->last = cl->buf->last;
         b->end = cl->buf->end;
@@ -917,7 +960,7 @@ ngx_http_request_body_chunked_filter(ngx_http_request_t *r, ngx_chain_t *in)
 
                 b->temporary = 1;
                 b->tag = (ngx_buf_tag_t) &ngx_http_read_client_request_body;
-                b->start = cl->buf->start;
+                b->start = cl->buf->pos;
                 b->pos = cl->buf->pos;
                 b->last = cl->buf->last;
                 b->end = cl->buf->end;
